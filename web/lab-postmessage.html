@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - postMessage bridge</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 880px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      .note strong {
+        display: inline-block;
+        margin-bottom: 4px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 10px;
+      }
+      button {
+        margin-right: 8px;
+        margin-bottom: 8px;
+        padding: 8px 10px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+      .flow {
+        min-height: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: <code>window.postMessage</code> → privileged extension actions</h1>
+    <p>This lab shows how a webpage can end up triggering privileged extension behavior through an unsafe message bridge.</p>
+
+    <div class="note">
+      <strong>Before you start</strong><br />
+      1) Start the local server: <code>cd dvce/web &amp;&amp; python3 -m http.server 8000</code><br />
+      2) Load the extension from <code>dvce/extension</code><br />
+      3) Open the DVCE popup and set Mode to <b>vulnerable</b> (then refresh this page)
+    </div>
+
+    <h2>What you are sending (this page)</h2>
+    <p>When you click a button, this page sends a message to its own window:</p>
+    <pre class="flow"><code>window.postMessage({ dvce: true, id, cmd, args }, "*");</code></pre>
+
+    <div class="note">
+      <strong>Why <code>postMessage</code>?</strong><br />
+      Content scripts run in an “isolated world” and can’t directly call functions/variables in the page’s JavaScript. Many
+      extensions use <code>window.postMessage</code> as a bridge between page JS ↔ content script.
+    </div>
+
+    <p>In a real application, this message could be sent by:</p>
+    <ul>
+      <li>the site’s own JavaScript</li>
+      <li>a third-party script loaded by the site (analytics, ads, tag managers)</li>
+      <li>an XSS payload on the site</li>
+      <li>a cross-origin iframe using <code>parent.postMessage</code> (see the iframe lab)</li>
+    </ul>
+
+    <h2>What runs inside the extension</h2>
+
+    <div class="grid">
+      <div class="note">
+        <strong>0) Manifest: <code>dvce/extension/manifest.json</code></strong><br />
+        The manifest tells Chrome which scripts to run and on which pages.
+        <details>
+          <summary>Show the relevant manifest snippet</summary>
+          <pre><code>"background": { "service_worker": "sw.js" },
+"content_scripts": [
+  {
+    "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+    "js": ["content.js"]
+  }
+]</code></pre>
+        </details>
+      </div>
+
+      <div class="note">
+        <strong>1) Content script: <code>dvce/extension/content.js</code></strong><br />
+        A content script is JavaScript that Chrome injects into matching webpages (configured in
+        <code>manifest.json</code>). It can read/modify the page DOM and it can message the extension service worker.
+        <details>
+          <summary>Show the snippet this lab hits</summary>
+          <pre><code>window.addEventListener("message", (event) =&gt; {
+  const data = event?.data;
+  if (!data || data.dvce !== true) return;
+  if (data.type === "DVCE_RESPONSE") return;
+
+  // Fixed mode: validates the sender (origin + window).
+  // Note: the service worker (sw.js) must still authorize commands.
+  if (currentMode === "fixed") {
+    if (event.source !== window) return;
+    if (!isAllowedLocalOrigin(event.origin)) return;
+  }
+
+  // Vulnerable mode: no origin/source checks; forwards commands.
+  chrome.runtime.sendMessage(
+    { type: "DVCE_CMD", cmd: data.cmd, args: data.args },
+    (response) =&gt; window.postMessage({ dvce: true, type: "DVCE_RESPONSE", id: data.id, response }, "*")
+  );
+});</code></pre>
+        </details>
+      </div>
+
+      <div class="note">
+        <strong>2) Service worker: <code>dvce/extension/sw.js</code></strong><br />
+        The service worker (background) is where extensions typically perform privileged actions using
+        <code>chrome.*</code> APIs (tabs, scripting, storage, etc.).
+        <details>
+          <summary>Show the snippet this lab hits</summary>
+          <pre><code>chrome.runtime.onMessage.addListener((message, sender, sendResponse) =&gt; {
+  if (message.type !== "DVCE_CMD") return;
+
+  // Fixed mode blocks unknown senders and commands.
+  // Vulnerable mode executes based on cmd + args.
+
+  if (message.cmd === "setBadge") {
+    chrome.action.setBadgeText({ tabId: sender.tab.id, text: message.args.text });
+  }
+
+  if (message.cmd === "openTab") {
+    chrome.tabs.create({ url: message.args.url });
+  }
+
+  if (message.cmd === "injectTitle") {
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      func: (title) =&gt; (document.title = title),
+      args: [message.args.title]
+    });
+  }
+});</code></pre>
+        </details>
+      </div>
+    </div>
+
+    <h2>Flow (why this becomes a vulnerability)</h2>
+    <pre class="flow"><code>Web page JS
+  └─ window.postMessage({ cmd: ... })
+        └─ Content script (content.js) listens and forwards
+              └─ chrome.runtime.sendMessage({ cmd: ... })
+                    └─ Service worker (sw.js) performs privileged actions</code></pre>
+
+    <h2>Try it</h2>
+    <div class="note">
+      <strong>Tip</strong><br />
+      Keep the DVCE popup open while clicking buttons. It shows which commands the service worker received and from which page.
+    </div>
+
+    <div>
+      <button id="badge">setBadge</button>
+      <button id="open">openTab</button>
+      <button id="openLocal">openTabLocal</button>
+      <button id="inject">injectTitle</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      const pending = new Map();
+      let msgId = 0;
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+
+        // If you're in "fixed" mode, some commands are intentionally blocked and you may not get a response.
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          const req = pending.get(id);
+          pending.delete(id);
+          log(`(no response) cmd=${req.cmd} — likely blocked by DVCE fixed-mode checks in content.js/sw.js`);
+        }, 700);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        log("← Response: " + JSON.stringify(event.data));
+      });
+
+      document.getElementById("badge").addEventListener("click", () => {
+        send("setBadge", { text: "P0C" });
+      });
+
+      document.getElementById("open").addEventListener("click", () => {
+        // In DVCE fixed mode, this command is intentionally blocked.
+        send("openTab", { url: "https://example.com/" });
+      });
+
+      document.getElementById("openLocal").addEventListener("click", () => {
+        // In DVCE fixed mode, the safer variant is allowed (local-only allowlist).
+        send("openTabLocal", { url: "http://localhost:8000/" });
+      });
+
+      document.getElementById("inject").addEventListener("click", () => {
+        send("injectTitle", { title: "DVCE Injected" });
+      });
+    </script>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li><b>Confused deputy:</b> a site can “borrow” the extension’s privileges.</li>
+      <li>
+        If the extension has broad host access/permissions, an attacker-controlled message can drive actions like tab
+        navigation, script injection, or sensitive data access (depending on what the extension exposes).
+      </li>
+      <li>
+        Even with an origin allowlist, a site-level XSS (or malicious third-party script) can still send messages because it
+        runs on the allowed origin.
+      </li>
+    </ul>
+
+    <h2>How to secure (what DVCE fixed mode demonstrates)</h2>
+    <ul>
+      <li><b>Validate the sender:</b> check <code>event.source</code> and allowlist <code>event.origin</code>.</li>
+      <li><b>Validate the message:</b> strict schema + strict command allowlist (never “do whatever cmd says”).</li>
+      <li><b>Enforce in the background:</b> <code>sw.js</code> must re-check <code>sender.tab.url</code> and allowed commands.</li>
+      <li><b>Minimize access:</b> reduce permissions and host matches (avoid <code>&lt;all_urls&gt;</code> unless essential).</li>
+    </ul>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "danger",
+  "actions": [
+    { "cmd": "setBadge", "args": { "text": "DANG" } },
+    { "cmd": "openTab", "args": { "url": "https://example.com/" } }
+  ]
+}
+

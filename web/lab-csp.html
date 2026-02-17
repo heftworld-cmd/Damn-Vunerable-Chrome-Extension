@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - CSP</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Content Security Policy (CSP) for extensions</h1>
+    <p>
+      CSP is one of the most important controls for Chrome extensions because extension pages are privileged. A weak CSP can make
+      injection bugs (XSS/HTML injection) much easier to turn into full extension takeover.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      Website XSS runs with website privileges. <b>Extension page XSS</b> runs with extension privileges (whatever permissions the
+      extension has). CSP helps prevent risky script execution patterns like inline scripts and <code>eval</code>.
+    </div>
+
+    <h2>What “bad” looks like</h2>
+    <p>Examples of CSP values that drastically increase risk:</p>
+    <pre><code>// Dangerous patterns (don’t do this)
+script-src 'self' 'unsafe-inline' 'unsafe-eval'</code></pre>
+
+    <ul>
+      <li><code>'unsafe-inline'</code> allows inline scripts and inline event handlers to execute.</li>
+      <li><code>'unsafe-eval'</code> allows dynamic code execution via <code>eval()</code> / <code>new Function()</code>.</li>
+    </ul>
+
+    <h2>How Chrome MV3 helps (and how devs still shoot themselves)</h2>
+    <ul>
+      <li>MV3 pushes extensions toward stricter CSP and blocks many remote-code patterns.</li>
+      <li>But developers can still build “remote behavior” via dangerous config interpreters, overly broad permissions, or unsafe messaging.</li>
+    </ul>
+
+    <h2>DVCE guidance</h2>
+    <p>
+      In DVCE, you can explore these related labs:
+    </p>
+    <ul>
+      <li><b>Extension page injection</b>: <code>/lab-extension-pages.html</code></li>
+      <li><b>Remote config abuse</b>: <code>/lab-remote-config.html</code></li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Keep CSP strict. Avoid <code>'unsafe-inline'</code> and <code>'unsafe-eval'</code>.</li>
+      <li>Never execute strings as code. Don’t build “mini interpreters” from JSON.</li>
+      <li>Use safe DOM APIs (<code>textContent</code>) and treat all external input as untrusted.</li>
+      <li>Minimize permissions so the worst-case impact is smaller.</li>
+    </ul>
+  </body>
+</html>
+

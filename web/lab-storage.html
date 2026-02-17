@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Insecure Storage</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      input {
+        width: 560px;
+        max-width: 100%;
+        padding: 8px;
+      }
+      button {
+        padding: 8px 10px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Insecure Storage of Sensitive Data</h1>
+    <p>
+      This lab demonstrates a common risk: extensions storing secrets (tokens, API keys, session data) in
+      <code>chrome.storage</code> in plain text.
+    </p>
+
+    <div class="note">
+      <strong>Why this matters</strong><br />
+      If your extension is ever compromised (extension-page XSS, unsafe message bridge, supply-chain update),
+      an attacker can read anything you stored and steal accounts/data.
+    </div>
+
+    <div class="note">
+      <strong>DVCE Mode note</strong><br />
+      DVCE <b>fixed</b> mode intentionally blocks these “store/read secret” commands from webpages. Use <b>vulnerable</b> mode for
+      this demo.
+    </div>
+
+    <h2>Hands-on: store a fake token</h2>
+    <p>This page sends commands to DVCE to write/read a value from <code>chrome.storage.sync</code>.</p>
+    <details>
+      <summary>Show the storage call (service worker)</summary>
+      <pre><code>chrome.storage.sync.set({ dvceSecret: token });
+chrome.storage.sync.get({ dvceSecret: null }, (r) =&gt; r.dvceSecret);</code></pre>
+    </details>
+
+    <div class="note">
+      <strong>Safety</strong><br />
+      Use a fake value here. Do <b>not</b> paste a real password or real token.
+    </div>
+
+    <div>
+      <input id="token" value="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.DVCE_FAKE_PAYLOAD.SIGNATURE" />
+    </div>
+
+    <div>
+      <button id="save">Save token (sync)</button>
+      <button id="read">Read token (sync)</button>
+      <button id="clear">Clear token</button>
+      <button id="clearOut">Clear output</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li>Stolen API keys → abuse of your backend services and billing.</li>
+      <li>Stolen user tokens/cookies → account takeover.</li>
+      <li>Stolen internal data → compliance and incident response impact.</li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Don’t store long-lived secrets in extensions unless absolutely required.</li>
+      <li>Prefer short-lived tokens and rotate them often.</li>
+      <li>Never expose “read secret” functionality to webpages (only to trusted extension UI).</li>
+      <li>Assume the extension package is public; protect server-side with real authZ.</li>
+    </ul>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      let msgId = 0;
+      const pending = new Map();
+
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          log(`(no response) cmd=${cmd} — this command is typically blocked in DVCE fixed mode`);
+        }, 700);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        log("← Response: " + JSON.stringify(event.data.response, null, 2));
+      });
+
+      document.getElementById("save").addEventListener("click", () => {
+        const token = document.getElementById("token").value;
+        send("storeSecret", { value: token });
+      });
+
+      document.getElementById("read").addEventListener("click", () => {
+        send("readSecret");
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        send("clearSecret");
+      });
+
+      document.getElementById("clearOut").addEventListener("click", () => {
+        out.textContent = "";
+      });
+    </script>
+  </body>
+</html>

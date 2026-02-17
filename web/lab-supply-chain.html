@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Supply Chain</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Supply chain & dependency attacks</h1>
+    <p>
+      Most extensions depend on third-party code (npm packages, bundled libraries, build tooling). A supply-chain compromise can
+      turn a trusted extension update into a mass infection.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      A dependency is code that runs with the same privileges as your extension. If it’s compromised, users inherit that compromise
+      automatically via updates.
+    </div>
+
+    <h2>Common real-world supply-chain paths</h2>
+    <ul>
+      <li>Compromised npm package / maintainer account takeover</li>
+      <li>Typosquatting / dependency confusion</li>
+      <li>CI/CD compromise (build artifacts tampered before publishing)</li>
+      <li>Publisher account takeover (malicious update pushed to users)</li>
+    </ul>
+
+    <h2>What “bad” looks like in code</h2>
+    <p>Examples of risky patterns (even if they look “convenient”):</p>
+    <pre><code>// Pulling behavior from outside the reviewed extension package
+fetch("https://config.example.com/extension.json").then(r =&gt; r.json())
+
+// Executing strings as code (never do this)
+eval(untrustedString)</code></pre>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Minimize dependencies; prefer small, well-audited libraries.</li>
+      <li>Pin versions with lockfiles; review diffs on updates.</li>
+      <li>Generate an SBOM and run SCA scanning (Snyk, osv-scanner, etc.).</li>
+      <li>Harden publishing: MFA, least-privileged access, protected branches, signed releases.</li>
+      <li>Monitor for anomalous extension behavior after release (telemetry with privacy in mind).</li>
+    </ul>
+
+    <div class="note">
+      <strong>Next labs to connect the dots</strong><br />
+      1) Remote config as a supply-chain boundary: <code>/lab-remote-config.html</code><br />
+      2) Permissions define blast radius: <code>/lab-permissions.html</code>
+    </div>
+  </body>
+</html>
+

@@ -1,0 +1,9 @@
+{
+  "name": "safe",
+  "actions": [
+    { "cmd": "setBadge", "args": { "text": "CFG" } },
+    { "cmd": "injectTitle", "args": { "title": "DVCE: config applied (safe)" } },
+    { "cmd": "openTabLocal", "args": { "url": "http://localhost:8000/" } }
+  ]
+}
+

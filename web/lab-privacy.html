@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Privacy / Exfiltration</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      button {
+        padding: 8px 10px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Data exfiltration & tracking abuse</h1>
+    <p>
+      Malicious (or compromised) extensions often abuse permissions + content scripts to collect data (URLs, page content, form
+      inputs) and send it to a remote server.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      If an extension can <b>read</b> data (tabs/DOM/cookies) and can <b>send</b> data (network requests), then compromise can
+      become a privacy breach.
+    </div>
+
+    <h2>Hands-on: what can the extension see?</h2>
+    <p>This page asks DVCE for the active tab URL and title (requires the <code>tabs</code> permission).</p>
+
+    <div>
+      <button id="tab">Get active tab info</button>
+      <button id="simulate">Simulate “exfil payload”</button>
+      <button id="clear">Clear output</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <h2>What real attackers do</h2>
+    <ul>
+      <li>Collect browsing history / URLs, including sensitive query params.</li>
+      <li>Capture form fields and keystrokes via content scripts.</li>
+      <li>Inject ads or phishing overlays into pages.</li>
+      <li>Send data to a command-and-control (C2) endpoint.</li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Minimize permissions and host access (<code>&lt;all_urls&gt;</code> is a big risk multiplier).</li>
+      <li>Don’t collect data you don’t need; avoid logging sensitive URLs/tokens.</li>
+      <li>Protect extension pages from XSS; lock down messaging bridges.</li>
+      <li>Review outbound network access; pin domains and validate payloads.</li>
+    </ul>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      let msgId = 0;
+      const pending = new Map();
+      let lastTabInfo = null;
+
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          log(`(no response) cmd=${cmd} — ensure DVCE is loaded and Mode allows this command`);
+        }, 700);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        lastTabInfo = event.data.response?.tab ?? null;
+        log("← Response: " + JSON.stringify(event.data.response, null, 2));
+      });
+
+      document.getElementById("tab").addEventListener("click", () => {
+        send("getActiveTab");
+      });
+
+      document.getElementById("simulate").addEventListener("click", () => {
+        if (!lastTabInfo) {
+          log("No tab info yet. Click 'Get active tab info' first.");
+          return;
+        }
+        const payload = {
+          event: "page_view",
+          url: lastTabInfo.url,
+          title: lastTabInfo.title,
+          sentAt: new Date().toISOString()
+        };
+        log("Simulated payload (what a malicious extension could send):");
+        log(JSON.stringify(payload, null, 2));
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        out.textContent = "";
+        lastTabInfo = null;
+      });
+    </script>
+  </body>
+</html>
+

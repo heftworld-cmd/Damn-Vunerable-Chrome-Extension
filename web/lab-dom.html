@@ -1,0 +1,149 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - DOM injection</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 880px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      input {
+        width: 560px;
+        max-width: 100%;
+        padding: 8px;
+      }
+      button {
+        padding: 8px 10px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 90px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: content script DOM injection</h1>
+
+    <div class="note">
+      <strong>Goal</strong><br />
+      Understand how a content script can accidentally introduce XSS into a webpage by using dangerous DOM sinks like
+      <code>innerHTML</code>.
+    </div>
+
+    <p>
+      DVCE’s content script reads <code>?dvceBanner=...</code> and renders it into the page. In <b>vulnerable</b> mode it uses
+      <code>innerHTML</code> (unsafe). In <b>fixed</b> mode it uses <code>textContent</code> (safe).
+    </p>
+
+    <h2>Where this happens in the extension</h2>
+    <p>
+      The code is in <code>dvce/extension/content.js</code>. It builds a banner and renders the query parameter into it.
+    </p>
+    <details>
+      <summary>Show the key snippet (content.js)</summary>
+      <pre><code>// Fixed mode (safe)
+body.textContent = bannerParam;
+
+// Vulnerable mode (unsafe)
+body.innerHTML = bannerParam;</code></pre>
+    </details>
+
+    <h2>Try it</h2>
+    <ol>
+      <li>Set DVCE mode to <b>vulnerable</b> and refresh this page.</li>
+      <li>Click <b>Apply</b> with the default value: <code>&lt;b&gt;Hello from HTML&lt;/b&gt;</code>.</li>
+      <li>Notice the banner shows bold text (HTML was interpreted).</li>
+      <li>Toggle DVCE mode to <b>fixed</b>, refresh, and click <b>Apply</b> again.</li>
+      <li>Now the banner shows the literal text (HTML is not interpreted).</li>
+    </ol>
+
+    <div>
+      <input id="banner" value="&lt;b&gt;Hello from HTML&lt;/b&gt;" />
+      <button id="apply">Apply</button>
+      <button id="clear">Clear</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      function setBannerParam(value) {
+        const url = new URL(window.location.href);
+        if (value) url.searchParams.set("dvceBanner", value);
+        else url.searchParams.delete("dvceBanner");
+        window.location.href = url.toString();
+      }
+
+      document.getElementById("apply").addEventListener("click", () => {
+        const v = document.getElementById("banner").value;
+        log("Setting dvceBanner to: " + v);
+        setBannerParam(v);
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        log("Clearing dvceBanner");
+        setBannerParam("");
+      });
+    </script>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li>
+        If an attacker can influence the input (URL params, DOM text, API responses) and you render it with
+        <code>innerHTML</code>, you can create script execution in the <b>website’s</b> context.
+      </li>
+      <li>
+        That can lead to session theft, phishing overlays, form tampering, or data exfiltration on the affected site—even if
+        the extension itself isn’t “hacked”.
+      </li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Prefer <code>textContent</code> for untrusted data.</li>
+      <li>If you must render HTML, use strict allowlisted templates or a well-reviewed sanitizer.</li>
+      <li>Minimize the pages your content scripts run on (host matches) to reduce blast radius.</li>
+    </ul>
+  </body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - web_accessible_resources</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 880px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      input {
+        width: 460px;
+        max-width: 100%;
+        padding: 8px;
+      }
+      button {
+        padding: 8px 10px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: <code>web_accessible_resources</code> leak</h1>
+
+    <div class="note">
+      <strong>Goal</strong><br />
+      Learn how websites can load extension-packaged files via <code>chrome-extension://&lt;extension-id&gt;/...</code> when
+      those files are listed in <code>web_accessible_resources</code>.
+    </div>
+
+    <p>
+      This lab loads <code>dvce/extension/public/leaked.js</code> via a <code>&lt;script&gt;</code> tag using your extension ID.
+      If an extension exposes resources broadly and includes secrets in the package, websites may be able to load and read them.
+    </p>
+
+    <h2>Where this is configured</h2>
+    <p>
+      In <code>dvce/extension/manifest.json</code>, DVCE exposes one file to local pages:
+    </p>
+    <details>
+      <summary>Show manifest snippet</summary>
+      <pre><code>"web_accessible_resources": [
+  {
+    "resources": ["public/leaked.js"],
+    "matches": ["http://localhost/*", "http://127.0.0.1/*"]
+  }
+]</code></pre>
+    </details>
+
+    <h2>Try it</h2>
+    <ol>
+      <li>Open <code>chrome://extensions</code> and copy the DVCE extension ID.</li>
+      <li>Paste it below and click <b>Load leaked.js</b>.</li>
+    </ol>
+
+    <div>
+      <input id="extid" placeholder="Paste extension id (e.g., abcdefghijklmnop...)" />
+      <button id="load">Load leaked.js</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      document.getElementById("load").addEventListener("click", () => {
+        const id = document.getElementById("extid").value.trim();
+        if (!id) {
+          log("Missing extension id.");
+          return;
+        }
+
+        const src = `chrome-extension://${id}/public/leaked.js`;
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = () => {
+          log("Loaded: " + src);
+          log("window.DVCE_LEAK = " + JSON.stringify(window.DVCE_LEAK, null, 2));
+        };
+        s.onerror = () => log("Failed to load: " + src);
+        document.documentElement.appendChild(s);
+      });
+    </script>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li>
+        If an extension ships sensitive data inside the package (API keys, tokens, internal endpoints) and exposes it via
+        <code>web_accessible_resources</code>, any allowed website can read it.
+      </li>
+      <li>
+        Even if you don’t expose secrets, exposing HTML pages or broad resource patterns can create unexpected attack surface
+        (phishing pages, parameter reflection, etc.).
+      </li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Don’t ship secrets in extensions (treat the package as public).</li>
+      <li>Keep <code>web_accessible_resources</code> minimal and tightly scoped with <code>matches</code>.</li>
+      <li>Prefer messaging APIs to serve data dynamically with authorization checks.</li>
+    </ul>
+  </body>
+</html>

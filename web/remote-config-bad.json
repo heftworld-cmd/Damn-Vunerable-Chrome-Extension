@@ -1,0 +1,7 @@
+{
+  "name": "bad",
+  "actions": [
+    { "cmd": "totallyUnknownCommand", "args": { "x": 1 } }
+  ]
+}
+

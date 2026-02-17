@@ -1,0 +1,238 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Remote Config</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      select,
+      input {
+        padding: 8px;
+        width: 560px;
+        max-width: 100%;
+      }
+      button {
+        padding: 8px 10px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Remote config → privileged actions</h1>
+    <p>
+      Chrome MV3 tries to prevent <b>remote code execution</b> (loading arbitrary scripts from the internet). But extensions can
+      still build dangerous behavior by fetching a “remote config” and interpreting it as commands.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      If your extension fetches config from a server and the config can “tell the extension what to do”, then compromise of that
+      config channel can become compromise of the extension’s behavior.
+    </div>
+
+    <div class="note">
+      <strong>DVCE Mode note</strong><br />
+      DVCE <b>fixed</b> mode is designed to block high-risk commands like <code>applyRemoteConfig</code>. Use <b>vulnerable</b> mode
+      for this demo.
+    </div>
+
+    <h2>What this lab does</h2>
+    <p>
+      This page asks DVCE to fetch a JSON file (served by your local server) and then execute actions described in that JSON.
+    </p>
+    <details>
+      <summary>Show the request this page sends</summary>
+      <pre><code>window.postMessage(
+  { dvce: true, cmd: "applyRemoteConfig", args: { url: "http://localhost:8000/remote-config-safe.json" } },
+  "*"
+);</code></pre>
+    </details>
+
+    <h2>What gets triggered inside the extension</h2>
+
+    <div class="note">
+      <strong>1) Content script: <code>dvce/extension/content.js</code></strong><br />
+      Chrome injects <code>content.js</code> into this page (because of <code>matches</code> in the manifest). It listens for
+      <code>window.postMessage</code> and forwards the command to the extension service worker via
+      <code>chrome.runtime.sendMessage</code>.
+      <details>
+        <summary>Show the relevant snippet (content.js)</summary>
+        <pre><code>window.addEventListener("message", (event) =&gt; {
+  const data = event?.data;
+  if (!data || data.dvce !== true) return;
+  if (data.type === "DVCE_RESPONSE") return;
+
+  // Fixed mode: validate sender (origin/source).
+  // Command allowlisting is enforced in the service worker (sw.js).
+  if (currentMode === "fixed") {
+    if (event.source !== window) return;
+    if (!isAllowedLocalOrigin(event.origin)) return;
+  }
+
+  // Vulnerable mode: forwards page-controlled cmd + args
+  chrome.runtime.sendMessage(
+    { type: "DVCE_CMD", cmd: data.cmd, args: data.args },
+    (response) =&gt; window.postMessage({ dvce: true, type: "DVCE_RESPONSE", response }, "*")
+  );
+});</code></pre>
+      </details>
+    </div>
+
+    <div class="note">
+      <strong>2) Service worker: <code>dvce/extension/sw.js</code></strong><br />
+      The service worker receives the forwarded command and performs privileged actions (network fetch, tabs, scripting).
+      <details>
+        <summary>Show the high-level flow (sw.js)</summary>
+        <pre><code>chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) =&gt; {
+  if (message.type !== "DVCE_CMD") return;
+  const cmd = message.cmd;
+  const args = message.args;
+
+  // Fixed mode blocks risky commands like applyRemoteConfig
+  if (mode === "fixed") {
+    const allowedCmds = new Set(["setBadge", "openTabLocal", "injectTitle", "getManifestInfo", "getActiveTab"]);
+    if (!allowedCmds.has(cmd)) return sendResponse({ ok: false, error: "blocked_cmd" });
+  }
+
+  if (cmd === "applyRemoteConfig") {
+    const resp = await fetch(args.url);
+    const config = await resp.json();
+    for (const action of config.actions) {
+      // Executes actions like setBadge / injectTitle / openTab / openTabLocal
+    }
+    return sendResponse({ ok: true });
+  }
+});</code></pre>
+      </details>
+    </div>
+
+    <h2>What the config JSON looks like</h2>
+    <p>
+      The config is just data, but it can still become dangerous if your extension treats it as a list of “commands to run”.
+    </p>
+    <details>
+      <summary>Show example config (remote-config-safe.json)</summary>
+      <pre><code>{
+  "name": "safe",
+  "actions": [
+    { "cmd": "setBadge", "args": { "text": "CFG" } },
+    { "cmd": "injectTitle", "args": { "title": "DVCE: config applied (safe)" } },
+    { "cmd": "openTabLocal", "args": { "url": "http://localhost:8000/" } }
+  ]
+}</code></pre>
+    </details>
+
+    <h2>Choose a config</h2>
+    <div>
+      <select id="cfg">
+        <option value="http://localhost:8000/remote-config-safe.json">remote-config-safe.json (allowed actions)</option>
+        <option value="http://localhost:8000/remote-config-danger.json">remote-config-danger.json (includes risky openTab)</option>
+        <option value="http://localhost:8000/remote-config-bad.json">remote-config-bad.json (invalid/unknown action)</option>
+      </select>
+    </div>
+
+    <div style="margin-top: 10px">
+      <button id="apply">Fetch + apply config</button>
+      <button id="clear">Clear output</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li>“Remote config” can become a remote command channel if you don’t validate it strictly.</li>
+      <li>Even if you never load remote JS, config can still trigger high-impact extension actions.</li>
+      <li>If the config is hosted on a CDN or third-party service, that supply chain becomes your security boundary.</li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Keep config <b>data-only</b> (feature flags), never “run arbitrary actions”.</li>
+      <li>Use strict schema validation + allowlists for every config field.</li>
+      <li>Pin config sources (allowlist domains) and use integrity/authentication where possible.</li>
+      <li>Prefer local/static config baked into the extension when feasible.</li>
+    </ul>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      let msgId = 0;
+      const pending = new Map();
+
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          log(`(no response) cmd=${cmd} — ensure DVCE is loaded and Mode allows this command`);
+        }, 900);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        log("← Response: " + JSON.stringify(event.data.response, null, 2));
+      });
+
+      document.getElementById("apply").addEventListener("click", () => {
+        const url = document.getElementById("cfg").value;
+        send("applyRemoteConfig", { url });
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        out.textContent = "";
+      });
+    </script>
+  </body>
+</html>

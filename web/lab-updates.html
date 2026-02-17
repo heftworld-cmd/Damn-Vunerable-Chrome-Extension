@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Updates & Publisher Security</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Weak update / publisher security</h1>
+    <p>
+      Extensions auto-update for users. That’s great for patching—but it also means a compromised publishing pipeline can become a
+      rapid mass-infection vector.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      If an attacker can publish an update (dev account takeover, CI compromise, malicious dependency), users may receive it
+      automatically.
+    </div>
+
+    <h2>What can go wrong</h2>
+    <ul>
+      <li>Developer account takeover → attacker uploads a malicious version.</li>
+      <li>CI/CD compromise → build artifacts are modified before publishing.</li>
+      <li>Supply chain compromise → dependency update adds malicious behavior.</li>
+      <li>Weak review/release process → unsafe code reaches production.</li>
+    </ul>
+
+    <h2>How to secure (practical checklist)</h2>
+    <ul>
+      <li><b>MFA everywhere</b>: Chrome Web Store publisher, source control, CI.</li>
+      <li><b>Least privilege</b>: only a small set of accounts can publish releases.</li>
+      <li><b>Protected branches</b>: require PR reviews and status checks.</li>
+      <li><b>Reproducible builds</b>: make it harder to hide tampering.</li>
+      <li><b>Dependency control</b>: lockfiles, review diffs, SCA scanning.</li>
+      <li><b>Monitor releases</b>: alert on unexpected permission changes or behavior changes.</li>
+    </ul>
+
+    <div class="note">
+      <strong>Connect to other labs</strong><br />
+      1) Supply chain risks: <code>/lab-supply-chain.html</code><br />
+      2) Permissions blast radius: <code>/lab-permissions.html</code>
+    </div>
+  </body>
+</html>
+

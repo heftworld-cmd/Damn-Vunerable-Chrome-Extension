@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Extension Pages XSS</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      input {
+        width: 560px;
+        max-width: 100%;
+        padding: 8px;
+      }
+      button {
+        padding: 8px 10px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: XSS / HTML injection in extension pages</h1>
+    <p>
+      Extension pages (like <code>popup.html</code> and <code>options.html</code>) run under
+      <code>chrome-extension://&lt;extension-id&gt;/...</code> and can call powerful <code>chrome.*</code> APIs.
+    </p>
+
+    <div class="note">
+      <strong>Why this is severe</strong><br />
+      If an attacker gets JavaScript execution in an extension page, they effectively get “extension-level” privileges (whatever
+      permissions the extension has). That can be much worse than normal website XSS.
+    </div>
+
+    <h2>What you will do</h2>
+    <ol>
+      <li>Set DVCE Mode to <b>vulnerable</b> (DVCE popup → Toggle if needed)</li>
+      <li>Send a message from this webpage to the DVCE content script</li>
+      <li>DVCE forwards it to the service worker, which opens <code>options.html</code> with <code>?dvceMsg=...</code></li>
+      <li>Observe how unsafe rendering in an extension page becomes high impact</li>
+    </ol>
+
+    <div class="note">
+      <strong>Why you saw <code>ERR_BLOCKED_BY_CLIENT</code></strong><br />
+      Chrome blocks websites from directly opening most <code>chrome-extension://</code> pages unless the extension explicitly exposes
+      them (e.g., via <code>web_accessible_resources</code>) or the extension itself opens them. This is a safety barrier.<br /><br />
+      This lab demonstrates a realistic bypass: a vulnerable extension can be tricked (via unsafe messaging) into opening its own
+      privileged page with attacker-controlled input.
+    </div>
+
+    <div class="note">
+      <strong>Troubleshooting</strong><br />
+      If you see <code>chrome.runtime.sendMessage</code> errors or get “(no response)”, confirm:
+      <ul>
+        <li>DVCE is loaded at <code>chrome://extensions</code> (and reloaded after code changes)</li>
+        <li>You opened this lab as <code>http://localhost:8000/...</code> (DVCE only matches localhost)</li>
+      </ul>
+    </div>
+
+    <h2>Send an extension-opening request (this page)</h2>
+    <div>
+      <div style="margin-top: 8px">
+        <input id="payload" value="&lt;b&gt;Hello from extension page&lt;/b&gt;" />
+      </div>
+      <div style="margin-top: 10px">
+        <button id="openViaDvce">Ask DVCE to open options.html</button>
+        <button id="manifest">Get DVCE manifest info</button>
+        <button id="clear">Clear output</button>
+      </div>
+    </div>
+
+    <pre id="out"></pre>
+
+    <h2>What gets triggered inside the extension</h2>
+    <div class="note">
+      <strong>1) Content script: <code>dvce/extension/content.js</code></strong><br />
+      Content scripts run inside matching webpages. DVCE listens to <code>window.postMessage</code> and forwards the command to the
+      service worker via <code>chrome.runtime.sendMessage</code>.
+      <details>
+        <summary>Show the relevant snippet (content.js)</summary>
+        <pre><code>window.addEventListener("message", (event) =&gt; {
+  const data = event?.data;
+  if (!data || data.dvce !== true) return;
+  if (data.type === "DVCE_RESPONSE") return;
+
+  // Vulnerable mode: forwards page-controlled cmd + args
+  chrome.runtime.sendMessage(
+    { type: "DVCE_CMD", cmd: data.cmd, args: data.args },
+    (response) =&gt; window.postMessage({ dvce: true, type: "DVCE_RESPONSE", response }, "*")
+  );
+});</code></pre>
+      </details>
+    </div>
+
+    <div class="note">
+      <strong>2) Service worker: <code>dvce/extension/sw.js</code></strong><br />
+      The service worker can use privileged APIs. For this lab it opens DVCE’s <code>options.html</code> with a query parameter.
+      <details>
+        <summary>Show the relevant snippet (sw.js)</summary>
+        <pre><code>if (cmd === "openOptionsWithMsg") {
+  const url = new URL(chrome.runtime.getURL("options.html"));
+  url.searchParams.set("dvceMsg", args.msg);
+  await chrome.tabs.create({ url: url.toString() });
+  sendResponse({ ok: true });
+}</code></pre>
+      </details>
+    </div>
+
+    <h2>Where the vulnerable code lives</h2>
+    <p>
+      The opened extension page is <code>dvce/extension/options.html</code>. Its script (<code>options.js</code>) reads
+      <code>?dvceMsg=...</code> and renders it. In vulnerable mode it uses <code>innerHTML</code>.
+    </p>
+    <details>
+      <summary>Show the key pattern</summary>
+      <pre><code>// Vulnerable (HTML injection)
+el.innerHTML = dvceMsg;
+
+// Fixed (safe text rendering)
+el.textContent = dvceMsg;</code></pre>
+    </details>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Treat extension pages like admin panels: never render untrusted HTML.</li>
+      <li>Use safe sinks (<code>textContent</code>) and strict sanitization only when absolutely required.</li>
+      <li>Keep extension CSP strict (avoid <code>'unsafe-inline'</code>, <code>'unsafe-eval'</code>).</li>
+      <li>Minimize permissions so impact is limited even if a bug exists.</li>
+      <li>Lock down messaging: allowlist origins/commands and re-check in the service worker.</li>
+    </ul>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      let msgId = 0;
+      const pending = new Map();
+
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          log(`(no response) cmd=${cmd} — likely blocked in DVCE fixed mode`);
+        }, 900);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        log("← Response: " + JSON.stringify(event.data.response, null, 2));
+      });
+
+      document.getElementById("openViaDvce").addEventListener("click", () => {
+        const payload = document.getElementById("payload").value;
+        send("openOptionsWithMsg", { msg: payload });
+        log("Tip: once options.html opens, toggle DVCE Mode to 'fixed' and reload to compare rendering.");
+      });
+
+      document.getElementById("manifest").addEventListener("click", () => {
+        send("getManifestInfo");
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        out.textContent = "";
+      });
+    </script>
+  </body>
+</html>

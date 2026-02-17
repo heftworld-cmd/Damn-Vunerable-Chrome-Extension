@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Options</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 16px;
+        max-width: 1000px;
+      }
+      h1 {
+        margin: 0 0 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      input,
+      select {
+        padding: 8px;
+        width: 560px;
+        max-width: 100%;
+      }
+      button {
+        padding: 8px 10px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid #e5e7eb;
+        background: #f8fafc;
+        font-size: 12px;
+      }
+      #renderBox {
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 10px;
+        margin-top: 8px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DVCE Options</h1>
+    <div class="note">
+      <strong>What this page is</strong><br />
+      This is a privileged <b>extension page</b> running at <code>chrome-extension://</code>. Code here can call <code>chrome.*</code>
+      APIs (tabs, storage, scripting, …) based on what the extension requested in <code>manifest.json</code>.
+    </div>
+
+    <div class="row">
+      <div>Extension ID:</div>
+      <div class="pill" id="extId">…</div>
+      <div>Mode:</div>
+      <div class="pill" id="mode">…</div>
+      <button id="toggleMode">Toggle mode</button>
+    </div>
+
+    <h2>1) Extension page injection (HTML/XSS risk)</h2>
+    <p>
+      This section renders the query parameter <code>?dvceMsg=...</code>. In <b>vulnerable</b> mode it uses
+      <code>innerHTML</code> (unsafe). In <b>fixed</b> mode it uses <code>textContent</code> (safe).
+    </p>
+
+    <div class="row">
+      <input id="dvceMsg" placeholder="Try: <b>Hello</b>" />
+      <button id="reloadWithMsg">Reload with dvceMsg</button>
+    </div>
+
+    <div id="renderBox">
+      <div class="pill">Rendered output</div>
+      <div id="renderTarget" style="margin-top: 8px"></div>
+    </div>
+
+    <h2>2) Insecure storage demo (don’t store secrets)</h2>
+    <p>
+      Extensions often store tokens in <code>chrome.storage</code>. If your extension is compromised, attackers can read it. Use a
+      fake value here.
+    </p>
+    <div class="row">
+      <input id="secret" value="DVCE_FAKE_TOKEN_DO_NOT_USE" />
+      <button id="saveSecret">Save</button>
+      <button id="readSecret">Read</button>
+      <button id="clearSecret">Clear</button>
+    </div>
+
+    <h2>3) Permissions demo (what extension pages can do)</h2>
+    <p>
+      This shows that extension pages can call privileged APIs. Here we fetch the active tab URL/title (requires <code>tabs</code>
+      permission).
+    </p>
+    <div class="row">
+      <button id="activeTab">Get active tab info</button>
+    </div>
+
+    <h2>4) CSP demo (<code>eval</code> should be blocked)</h2>
+    <p>
+      A strict CSP makes it harder to turn HTML injection into full script execution. This button tries <code>eval("2+2")</code> and
+      reports what happens.
+    </p>
+    <div class="row">
+      <button id="tryEval">Try eval()</button>
+    </div>
+
+    <h2>5) Supply-chain simulation (dependency code runs with your privileges)</h2>
+    <p>
+      This page loads a “vendor library” from the extension package. In the real world, this could be an npm dependency. If the
+      dependency is compromised, it runs with the same extension privileges.
+    </p>
+    <div class="row">
+      <select id="vendorVariant">
+        <option value="safe">safe dependency</option>
+        <option value="compromised">compromised dependency</option>
+      </select>
+      <button id="loadVendor">Load vendor</button>
+      <span class="pill" id="vendorStatus">not loaded</span>
+    </div>
+
+    <pre id="out">Loading…</pre>
+
+    <script src="options.js"></script>
+  </body>
+</html>
+

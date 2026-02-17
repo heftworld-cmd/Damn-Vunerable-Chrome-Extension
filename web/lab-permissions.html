@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - Excessive Permissions</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      button {
+        padding: 8px 10px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: Excessive Permissions (Over‑privileged extensions)</h1>
+    <p>
+      This lab explains why requesting broad permissions like <code>tabs</code>, <code>cookies</code>, <code>&lt;all_urls&gt;</code>,
+      or <code>webRequest</code> can turn a single extension bug into a browser-wide incident.
+    </p>
+
+    <div class="note">
+      <strong>Key idea</strong><br />
+      Permissions are the <b>blast radius</b>. If an extension is compromised (XSS in extension pages, supply-chain update, unsafe
+      message bridge), an attacker inherits all granted permissions.
+    </div>
+
+    <h2>Where permissions live</h2>
+    <p>Chrome extension capabilities are declared in <code>dvce/extension/manifest.json</code>:</p>
+    <details>
+      <summary>Show example snippet</summary>
+      <pre><code>{
+  "permissions": ["tabs", "cookies", "webRequest"],
+  "host_permissions": ["&lt;all_urls&gt;"]
+}</code></pre>
+    </details>
+
+    <div class="note">
+      <strong>Two important buckets</strong><br />
+      1) <code>permissions</code> — powerful APIs (tabs, cookies, webRequest, scripting, …)<br />
+      2) <code>host_permissions</code> — which websites the extension can access (<code>https://*.example.com/*</code>, <code>&lt;all_urls&gt;</code>, …)
+    </div>
+
+    <h2>Hands-on: ask DVCE what it requested</h2>
+    <p>
+      This page sends a DVCE command via <code>window.postMessage</code>. The extension’s content script (<code>content.js</code>)
+      forwards it to the service worker (<code>sw.js</code>), which replies with manifest info.
+    </p>
+    <details>
+      <summary>Show the request this page sends</summary>
+      <pre><code>window.postMessage({ dvce: true, cmd: "getManifestInfo" }, "*");</code></pre>
+    </details>
+
+    <div>
+      <button id="manifest">Get manifest info</button>
+      <button id="tab">Get active tab info</button>
+      <button id="clear">Clear output</button>
+    </div>
+
+    <pre id="out"></pre>
+
+    <h2>Why these specific permissions are high-impact</h2>
+    <ul>
+      <li><code>tabs</code>: can reveal where users browse (URLs, titles) and enable tab manipulation.</li>
+      <li><code>cookies</code>: can expose session cookies (account takeover risk).</li>
+      <li><code>&lt;all_urls&gt;</code>: makes the extension run “everywhere”, multiplying exposure and data access.</li>
+      <li><code>webRequest</code>: can observe (and sometimes influence) network traffic.</li>
+    </ul>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li><b>Data theft</b>: browsing history/URLs, form data, tokens (depends on permissions/features).</li>
+      <li><b>Session hijacking</b>: if cookies or auth headers are accessible.</li>
+      <li><b>Stealth spying</b>: background tracking via tab/network events.</li>
+    </ul>
+
+    <h2>How to secure</h2>
+    <ul>
+      <li>Request the minimum permissions required for the feature.</li>
+      <li>Prefer <b>narrow host permissions</b> over <code>&lt;all_urls&gt;</code>.</li>
+      <li>Use optional permissions and ask only when needed.</li>
+      <li>Review permissions during code review like you review authentication/authorization.</li>
+    </ul>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      let msgId = 0;
+      const pending = new Map();
+
+      function send(cmd, args) {
+        const id = ++msgId;
+        pending.set(id, { cmd, sentAt: Date.now() });
+        window.postMessage({ dvce: true, id, cmd, args }, "*");
+        log("→ Sent: " + JSON.stringify({ id, cmd, args }));
+        setTimeout(() => {
+          if (!pending.has(id)) return;
+          pending.delete(id);
+          log(`(no response) cmd=${cmd} — ensure DVCE is loaded on localhost and Mode allows this command`);
+        }, 700);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!event.data || event.data.dvce !== true) return;
+        if (event.data.type !== "DVCE_RESPONSE") return;
+        pending.delete(event.data.id);
+        log("← Response: " + JSON.stringify(event.data.response, null, 2));
+      });
+
+      document.getElementById("manifest").addEventListener("click", () => {
+        send("getManifestInfo");
+      });
+
+      document.getElementById("tab").addEventListener("click", () => {
+        send("getActiveTab");
+      });
+
+      document.getElementById("clear").addEventListener("click", () => {
+        out.textContent = "";
+      });
+    </script>
+  </body>
+</html>
+

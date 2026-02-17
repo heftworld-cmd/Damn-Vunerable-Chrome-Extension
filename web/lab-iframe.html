@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>DVCE Lab - iframe postMessage</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        max-width: 880px;
+        margin: 24px auto;
+        padding: 0 12px;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      h2 {
+        margin-top: 22px;
+        margin-bottom: 8px;
+      }
+      p,
+      li {
+        line-height: 1.45;
+      }
+      .note {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+      iframe {
+        width: 100%;
+        height: 220px;
+        border: 1px solid #e5e7eb;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f6f7f8;
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        min-height: 120px;
+      }
+      pre code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      code {
+        background: #f0f0f0;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      details summary {
+        cursor: pointer;
+        user-select: none;
+        margin: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lab: cross-origin iframe → <code>postMessage</code></h1>
+
+    <div class="note">
+      <strong>Goal</strong><br />
+      Learn why you must validate <code>event.source</code> and <code>event.origin</code> in a content-script message bridge.
+    </div>
+
+    <p>
+      The iframe below is served from <code>http://127.0.0.1:8000</code> while this top page is
+      <code>http://localhost:8000</code>.
+    </p>
+
+    <p>
+      Even though both look “local”, they are different <b>origins</b>. In the real world, if your extension runs on a site
+      that embeds third-party iframes (ads, chat widgets, analytics), those frames may be able to message the top window.
+    </p>
+
+    <p>
+      In DVCE <b>vulnerable</b> mode, a content script that doesn’t check <code>event.source</code>/<code>event.origin</code>
+      can accept messages from a cross-origin iframe and forward them to privileged extension code.
+    </p>
+
+    <h2>What the iframe sends</h2>
+    <details>
+      <summary>Show iframe sender snippet (runs inside the iframe)</summary>
+      <pre><code>parent.postMessage(
+  { dvce: true, cmd: "setBadge", args: { text: "IFRM" } },
+  "*"
+);</code></pre>
+    </details>
+
+    <h2>What the extension should do</h2>
+    <p>
+      In DVCE <b>fixed</b> mode, <code>dvce/extension/content.js</code> requires
+      <code>event.source === window</code>, so iframe messages are ignored.
+    </p>
+    <details>
+      <summary>Show the relevant fixed-mode check (content.js)</summary>
+      <pre><code>if (currentMode === "fixed") {
+  if (event.source !== window) return; // blocks iframe window
+  if (!isAllowedLocalOrigin(event.origin)) return;
+}</code></pre>
+    </details>
+
+    <h2>Try it</h2>
+    <ol>
+      <li>Set DVCE mode to <b>vulnerable</b> and refresh this page.</li>
+      <li>Click <b>Send setBadge</b> inside the iframe; the extension badge should change to <code>IFRM</code>.</li>
+      <li>Now toggle DVCE mode to <b>fixed</b> and refresh; the badge should no longer change.</li>
+    </ol>
+
+    <iframe src="http://127.0.0.1:8000/iframe-sender.html" title="DVCE iframe sender"></iframe>
+
+    <h2>Messages observed on the top page</h2>
+    <pre id="out"></pre>
+
+    <script>
+      const out = document.getElementById("out");
+      const log = (m) => (out.textContent += m + "\n");
+
+      window.addEventListener("message", (event) => {
+        if (!event.data) return;
+        if (event.data.dvce !== true) return;
+        log(
+          `Top got message from origin=${event.origin} sourceIsWindow=${
+            event.source === window
+          } data=${JSON.stringify(event.data)}`
+        );
+      });
+    </script>
+
+    <h2>Real-world implications</h2>
+    <ul>
+      <li>
+        If your extension listens to <code>postMessage</code> and does privileged work, a third-party iframe can become an
+        attacker-controlled input channel.
+      </li>
+      <li>
+        If the extension has broad permissions/host access, the iframe could drive high-impact behavior (navigation, script
+        injection, data access) depending on what your background code exposes.
+      </li>
+    </ul>
+  </body>
+</html>

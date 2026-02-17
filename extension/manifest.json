@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "DVCE (Local Lab) - Damn Vulnerable Chrome Extension",
+  "version": "0.1.0",
+  "description": "Local-only training extension demonstrating common Chrome extension vulnerability patterns.",
+  "action": {
+    "default_title": "DVCE",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "sw.js"
+  },
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["public/leaked.js"],
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"]
+    }
+  ]
+}
